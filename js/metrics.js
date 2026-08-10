@@ -261,3 +261,263 @@ export function compareSymmetry(leftAROM, rightAROM) {
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
+
+// ---------- lateral (sagittal plane) posture, single side view ----------
+
+/**
+ * Analyze a single side-view (lateral) frame.
+ * side: 'left' | 'right' — which side of the body faces the camera. Only that
+ * side's landmarks are used; the far side is usually occluded/unreliable in profile.
+ *
+ * Forward/behind offsets are normalized to the direction the person is actually
+ * facing in the image (using nose vs ear position), not raw image x, so the sign
+ * is meaningful regardless of which way they turned during capture.
+ */
+export function computeLateralPosture(landmarks, side) {
+  const prefix = side === 'left' ? 'LEFT' : 'RIGHT';
+  const idx = {
+    ear: LM[`${prefix}_EAR`],
+    shoulder: LM[`${prefix}_SHOULDER`],
+    hip: LM[`${prefix}_HIP`],
+    knee: LM[`${prefix}_KNEE`],
+    ankle: LM[`${prefix}_ANKLE`],
+  };
+  const need = [idx.shoulder, idx.hip, idx.knee, idx.ankle];
+  for (const i of need) {
+    if (!visible(landmarks, i, 0.3)) {
+      return { valid: false, reason: `landmark ${i} not visible` };
+    }
+  }
+  const ear = visible(landmarks, idx.ear, 0.3) ? landmarks[idx.ear] : null;
+  const nose = visible(landmarks, LM.NOSE, 0.3) ? landmarks[LM.NOSE] : null;
+  const shoulder = landmarks[idx.shoulder];
+  const hip = landmarks[idx.hip];
+  const knee = landmarks[idx.knee];
+  const ankle = landmarks[idx.ankle];
+
+  let facingSign = 1;
+  let directionConfident = false;
+  if (ear && nose && Math.abs(nose.x - ear.x) > 1e-3) {
+    facingSign = Math.sign(nose.x - ear.x);
+    directionConfident = true;
+  }
+
+  // Craniovertebral angle: angle between horizontal and the ear-shoulder line.
+  // Lower angle (roughly <50deg) is associated with forward head posture.
+  let cvaDeg = null;
+  if (ear) {
+    cvaDeg = Math.abs(tiltFromHorizontal(shoulder, ear));
+  }
+
+  // Trunk lean: angle of the shoulder->hip line from vertical. ~0 = upright.
+  const trunkLeanDeg = leanFromVertical(shoulder, hip);
+
+  // Knee bend amount: hip-knee-ankle vertex angle. 180 = perfectly straight leg,
+  // and the further below 180, the more the knee is bent (in either direction).
+  // This alone can't tell flexion from hyperextension (both bend the vertex angle
+  // the same way), so direction comes from kneeLineOffsetRatio below.
+  const kneeAngleDeg = angleAtVertex(hip, knee, ankle);
+
+  // Horizontal offsets from the ankle (simple plumb-line reference), normalized
+  // by leg length, oriented so positive = forward of the ankle, negative = behind.
+  const legLength = dist(hip, ankle) || 1e-6;
+  const hipOffsetRatio = ((hip.x - ankle.x) / legLength) * facingSign;
+  const shoulderOffsetRatio = ((shoulder.x - ankle.x) / legLength) * facingSign;
+  const earOffsetRatio = ear ? ((ear.x - ankle.x) / legLength) * facingSign : null;
+
+  // Knee's sideways offset from the straight hip-ankle line (not just from the
+  // ankle) — this is what actually distinguishes a forward-bent knee (offset
+  // toward the facing direction) from a locked/hyperextended knee (offset the
+  // opposite way), which the vertex angle alone cannot do.
+  const kneeYFrac = (knee.y - hip.y) / ((ankle.y - hip.y) || 1e-6);
+  const hipAnkleXAtKneeY = hip.x + (ankle.x - hip.x) * kneeYFrac;
+  const kneeLineOffsetRatio = ((knee.x - hipAnkleXAtKneeY) / legLength) * facingSign;
+
+  const flags = [];
+  if (cvaDeg !== null && cvaDeg < 50) flags.push('forward head posture');
+  if (Math.abs(trunkLeanDeg) > 8) {
+    flags.push(trunkLeanDeg * facingSign > 0 ? 'trunk leaning forward' : 'trunk leaning backward');
+  }
+  if (kneeLineOffsetRatio < -0.04) flags.push('knee hyperextension');
+  else if (kneeLineOffsetRatio > 0.06) flags.push('excessive knee flexion');
+  if (Math.abs(shoulderOffsetRatio) > 0.15) flags.push('shoulders shifted off the vertical line');
+  if (Math.abs(hipOffsetRatio) > 0.12) flags.push('pelvis shifted off the vertical line');
+
+  return {
+    valid: true,
+    side,
+    directionConfident,
+    cvaDeg: cvaDeg !== null ? round2(cvaDeg) : null,
+    trunkLeanDeg: round2(trunkLeanDeg),
+    kneeAngleDeg: kneeAngleDeg !== null ? round2(kneeAngleDeg) : null,
+    kneeLineOffsetRatio: round2(kneeLineOffsetRatio),
+    hipOffsetRatio: round2(hipOffsetRatio),
+    shoulderOffsetRatio: round2(shoulderOffsetRatio),
+    earOffsetRatio: earOffsetRatio !== null ? round2(earOffsetRatio) : null,
+    flags,
+  };
+}
+
+// ---------- BMI + combined report across all 4 views ----------
+
+export function computeBMI(weightKg, heightCm) {
+  if (!weightKg || !heightCm) return null;
+  const heightM = heightCm / 100;
+  const bmi = weightKg / (heightM * heightM);
+  let category;
+  if (bmi < 18.5) category = 'underweight';
+  else if (bmi < 25) category = 'normal range';
+  else if (bmi < 30) category = 'overweight';
+  else category = 'obese';
+  return { value: round2(bmi), category };
+}
+
+const FINDING_TEXT = {
+  'shoulder asymmetry': 'One shoulder sits noticeably higher than the other.',
+  'hip asymmetry': 'One hip sits noticeably higher than the other.',
+  'trunk lean': 'The trunk leans to one side rather than sitting centered over the hips.',
+  'lateral shift': 'The upper body is shifted sideways relative to the hips.',
+  'head tilt': 'The head tilts to one side.',
+  'forward head posture': 'The head sits forward of the shoulders rather than stacked above them.',
+  'trunk leaning forward': 'The trunk leans forward rather than staying upright.',
+  'trunk leaning backward': 'The trunk leans backward rather than staying upright.',
+  'knee hyperextension': 'The knee locks/hyperextends backward when standing.',
+  'excessive knee flexion': 'The knee stays noticeably bent rather than fully straight when standing.',
+  'shoulders shifted off the vertical line': 'The shoulders sit forward or behind the body’s natural vertical line.',
+  'pelvis shifted off the vertical line': 'The pelvis sits forward or behind the body’s natural vertical line.',
+};
+
+const VIEW_LABELS = {
+  anterior: 'front view',
+  posterior: 'back view',
+  lateralRight: 'right side view',
+  lateralLeft: 'left side view',
+};
+
+/**
+ * Combine intake info + up to 4 view captures (anterior/posterior/lateralRight/lateralLeft,
+ * each the result of computePostureSymmetry or computeLateralPosture, or null/omitted if
+ * that view wasn't captured) into a numeric summary + plain-language report.
+ */
+export function generatePostureReport(intake, captures) {
+  const bmi = computeBMI(intake.weightKg, intake.heightCm);
+
+  const flagCounts = {};
+  const findings = [];
+
+  for (const [key, result] of Object.entries(captures)) {
+    if (!result || !result.valid) continue;
+    for (const flag of result.flags) {
+      flagCounts[flag] = (flagCounts[flag] || 0) + 1;
+      findings.push(`On the ${VIEW_LABELS[key] || key}: ${FINDING_TEXT[flag] || flag}`);
+    }
+  }
+
+  const areasToImprove = Object.keys(flagCounts).map((flag) => ({
+    flag,
+    text: FINDING_TEXT[flag] || flag,
+    seenInViews: flagCounts[flag],
+  }));
+
+  const a = captures.anterior?.valid ? captures.anterior : null;
+  const p = captures.posterior?.valid ? captures.posterior : null;
+  const r = captures.lateralRight?.valid ? captures.lateralRight : null;
+  const l = captures.lateralLeft?.valid ? captures.lateralLeft : null;
+
+  const summary = {
+    name: intake.name || '',
+    age: intake.age ?? null,
+    sex: intake.sex || '',
+    weightKg: intake.weightKg ?? null,
+    heightCm: intake.heightCm ?? null,
+    bmi: bmi ? bmi.value : null,
+    bmiCategory: bmi ? bmi.category : null,
+    anteriorShoulderTiltDeg: a ? a.shoulderTiltDeg : null,
+    anteriorHipTiltDeg: a ? a.hipTiltDeg : null,
+    anteriorHeadTiltDeg: a ? a.headTiltDeg : null,
+    anteriorLateralShiftRatio: a ? a.lateralShiftRatio : null,
+    posteriorShoulderTiltDeg: p ? p.shoulderTiltDeg : null,
+    posteriorHipTiltDeg: p ? p.hipTiltDeg : null,
+    rightCvaDeg: r ? r.cvaDeg : null,
+    rightTrunkLeanDeg: r ? r.trunkLeanDeg : null,
+    rightKneeAngleDeg: r ? r.kneeAngleDeg : null,
+    leftCvaDeg: l ? l.cvaDeg : null,
+    leftTrunkLeanDeg: l ? l.trunkLeanDeg : null,
+    leftKneeAngleDeg: l ? l.kneeAngleDeg : null,
+  };
+
+  const viewsCaptured = ['anterior', 'posterior', 'lateralRight', 'lateralLeft'].filter(
+    (k) => captures[k]?.valid
+  ).length;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    intake,
+    bmi,
+    summary,
+    viewsCaptured,
+    areasToImprove,
+    findings,
+    overallNote:
+      areasToImprove.length === 0
+        ? 'No notable asymmetries or misalignments were flagged across the captured views.'
+        : `${areasToImprove.length} area${areasToImprove.length > 1 ? 's' : ''} flagged for attention across ${viewsCaptured} captured view${viewsCaptured > 1 ? 's' : ''}.`,
+    disclaimer:
+      'This is an automated visual screening based on camera landmarks, not a medical diagnosis. For pain, injury, or clinical concerns, consult a qualified physiotherapist or physician.',
+  };
+}
+
+// ---------- live framing feedback for the guided capture flow ----------
+
+/**
+ * Check whether the current frame is good enough to capture from:
+ * whole relevant body visible, centered, and at a reasonable distance.
+ * viewType: 'front' (anterior/posterior, needs both sides) or 'lateral' (needs just one side).
+ * side: 'left' | 'right' — only used when viewType is 'lateral'.
+ */
+export function assessFrameQuality(landmarks, viewType, side) {
+  const required =
+    viewType === 'lateral'
+      ? (() => {
+          const prefix = side === 'left' ? 'LEFT' : 'RIGHT';
+          return [LM[`${prefix}_SHOULDER`], LM[`${prefix}_HIP`], LM[`${prefix}_KNEE`], LM[`${prefix}_ANKLE`]];
+        })()
+      : [
+          LM.LEFT_SHOULDER, LM.RIGHT_SHOULDER,
+          LM.LEFT_HIP, LM.RIGHT_HIP,
+          LM.LEFT_KNEE, LM.RIGHT_KNEE,
+          LM.LEFT_ANKLE, LM.RIGHT_ANKLE,
+        ];
+
+  const missing = required.filter((i) => !visible(landmarks, i, 0.4));
+  if (missing.length > 0) {
+    return { ok: false, message: 'Step back so your whole body, head to ankles, is visible.' };
+  }
+
+  const xs = required.map((i) => landmarks[i].x);
+  const ys = required.map((i) => landmarks[i].y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+
+  if (minX < 0.04 || maxX > 0.96) {
+    return { ok: false, message: 'Center yourself in the frame.' };
+  }
+  if (minY < 0.03) {
+    return { ok: false, message: 'Move back a little so your head is fully in frame.' };
+  }
+
+  const refWidth =
+    viewType === 'lateral'
+      ? dist(landmarks[required[0]], landmarks[required[1]]) // shoulder-hip as scale reference
+      : dist(landmarks[LM.LEFT_SHOULDER], landmarks[LM.RIGHT_SHOULDER]);
+
+  if (refWidth < 0.06) {
+    return { ok: false, message: 'Move closer to the camera.' };
+  }
+  if (refWidth > 0.5) {
+    return { ok: false, message: 'Move a bit further from the camera.' };
+  }
+
+  return { ok: true, message: 'Good position — hold still and capture.' };
+}
