@@ -103,6 +103,45 @@ knee from a locked/hyperextended one).
 All thresholds are simple screening heuristics, not clinical cutoffs — see
 the disclaimer shown on every report.
 
+## Where the reference numbers come from
+
+The report screen shows a short reference note under each metric. Summary of
+what's actually backed by literature vs. what's a heuristic with no agreed
+norm:
+
+- **Craniovertebral angle (forward head posture)**: commonly cited normal
+  range is ~48-52°, with <50° often used as a cutoff — but researchers
+  explicitly note there's no universal consensus threshold. This app uses
+  <50°.
+- **Shoulder/hip coronal tilt**: photogrammetric studies of people without
+  scoliosis find average shoulder obliquity of roughly 1.5-2°, with scoliosis
+  groups only somewhat higher (~2.7°) — meaning small tilts overlap heavily
+  between "normal" and "flagged" populations. This app flags >4° to reduce
+  false positives, but treat small tilts as low-signal.
+- **Genu recurvatum (knee hyperextension)**: clinically defined as >5° of
+  true hyperextension via goniometer or X-ray. This app's knee metric is a
+  photo-based line-offset proxy (front-of-line vs. behind-the-line), not a
+  calibrated degree measurement, so it can't be read as "X degrees of
+  hyperextension" — it's directional screening only.
+- **Anterior pelvic tilt**: healthy standing adults average roughly 8-13°
+  (sometimes cited up to 7-19°) of *forward* pelvic tilt — zero tilt is not
+  actually "normal." This app doesn't measure that angle at all (it would
+  need ASIS/PSIS landmarks MediaPipe doesn't provide); the "pelvis offset"
+  metric instead measures horizontal position relative to the ankle, which is
+  a different construct — don't conflate the two.
+- **Trunk lean, lateral shift**: no established population norm found in the
+  literature for these exact photo-based measures. Used as relative,
+  session-to-session screening signals only (e.g., comparing before/after an
+  intervention), not against a fixed "normal" number.
+- **BMI**: standard WHO categories (underweight <18.5, normal 18.5-25,
+  overweight 25-30, obese 30+), shown for context only — it doesn't measure
+  body composition or relate directly to posture.
+
+Bottom line: the most defensible number here is the craniovertebral angle;
+everything else is a directional screening signal, useful for tracking change
+over time in the same person more than for comparing against a fixed
+"normal."
+
 ## Known limitations / good next steps
 
 - **Not a medical device.** This is an automated visual screening from 2D
