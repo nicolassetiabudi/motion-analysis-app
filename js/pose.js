@@ -35,10 +35,20 @@ export async function initPoseLandmarker(onStatus = () => {}) {
   return landmarker;
 }
 
-/** Request the phone's rear camera and attach the stream to a <video> element. */
+/**
+ * Request the phone's rear camera and attach the stream to a <video> element.
+ * This app is used holding the phone upright, so we ask for a portrait-shaped
+ * stream (width < height) instead of the landscape default most cameras give —
+ * without this, the preview comes back as a thin cropped strip on most phones.
+ */
 export async function startCamera(videoEl, facingMode = 'environment') {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+    video: {
+      facingMode,
+      width: { ideal: 720 },
+      height: { ideal: 1280 },
+      aspectRatio: { ideal: 9 / 16 },
+    },
     audio: false,
   });
   videoEl.srcObject = stream;

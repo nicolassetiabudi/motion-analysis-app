@@ -115,9 +115,15 @@ export function computePostureSymmetry(landmarks) {
   }
 
   // Thresholds are conservative starting points, not clinical cutoffs.
+  // Thresholds: photogrammetric studies of asymptomatic adults find average
+  // shoulder/hip coronal obliquity of roughly 1.5-2° (Cazzaniga et al. and
+  // similar scoliosis-screening literature), so small tilts are common and not
+  // by themselves meaningful. These flags use a slightly wider margin (4°) to
+  // reduce false positives on normal variation — still a screening heuristic,
+  // not a diagnostic cutoff.
   const flags = [];
-  if (Math.abs(shoulderTiltDeg) > 3) flags.push('shoulder asymmetry');
-  if (Math.abs(hipTiltDeg) > 3) flags.push('hip asymmetry');
+  if (Math.abs(shoulderTiltDeg) > 4) flags.push('shoulder asymmetry');
+  if (Math.abs(hipTiltDeg) > 4) flags.push('hip asymmetry');
   if (Math.abs(spinalLeanDeg) > 4) flags.push('trunk lean');
   if (Math.abs(lateralShiftRatio) > 0.05) flags.push('lateral shift');
   if (headTiltDeg !== null && Math.abs(headTiltDeg) > 4) flags.push('head tilt');
@@ -333,6 +339,9 @@ export function computeLateralPosture(landmarks, side) {
   const hipAnkleXAtKneeY = hip.x + (ankle.x - hip.x) * kneeYFrac;
   const kneeLineOffsetRatio = ((knee.x - hipAnkleXAtKneeY) / legLength) * facingSign;
 
+  // Craniovertebral angle: commonly cited normal range in the literature is
+  // roughly 48-52°, with <~50° often used as a forward-head-posture cutoff —
+  // though there is no universal consensus threshold across studies.
   const flags = [];
   if (cvaDeg !== null && cvaDeg < 50) flags.push('forward head posture');
   if (Math.abs(trunkLeanDeg) > 8) {
@@ -385,6 +394,29 @@ const FINDING_TEXT = {
   'excessive knee flexion': 'The knee stays noticeably bent rather than fully straight when standing.',
   'shoulders shifted off the vertical line': 'The shoulders sit forward or behind the body’s natural vertical line.',
   'pelvis shifted off the vertical line': 'The pelvis sits forward or behind the body’s natural vertical line.',
+};
+
+/**
+ * Short reference notes for the report UI — what's actually established in the
+ * posture-assessment literature vs. what's a screening heuristic with no
+ * consensus norm. Deliberately conservative: most "normal ranges" for
+ * photo-based posture angles are not standardized, so most of these say so.
+ */
+export const METRIC_REFERENCES = {
+  shoulderTiltDeg:
+    'Photographic studies of people without scoliosis find average shoulder tilt of ~1.5-2°, so small differences are common. This app flags >4°.',
+  hipTiltDeg:
+    'Same idea as shoulder tilt — a few degrees of difference is typical. This app flags >4°.',
+  headTiltDeg: 'No established population norm for this measure; used as a relative screening signal only.',
+  spinalLeanDeg: 'Screening heuristic (trunk midline vs. vertical); no established population norm for this exact measure.',
+  lateralShiftRatio: 'Screening heuristic; no established population norm for this exact measure.',
+  cvaDeg:
+    'Commonly cited normal range is ~48-52°, with <50° often used as a forward-head-posture cutoff — but there is no universal consensus threshold in the research.',
+  kneeAngleDeg:
+    'True clinical genu recurvatum is defined as >5° of hyperextension measured by goniometer or X-ray. This photo-based estimate is a directional screening proxy, not a calibrated degree measurement.',
+  pelvicOffset:
+    'This measures horizontal position relative to the ankle, not the clinical anterior pelvic tilt angle (ASIS-PSIS), which averages roughly 8-13° forward-tilted in healthy standing adults — some forward tilt is normal, not a flaw.',
+  bmi: 'BMI is a screening ratio, not a body-composition or fitness measure — it doesn’t distinguish muscle from fat.',
 };
 
 const VIEW_LABELS = {

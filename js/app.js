@@ -15,6 +15,7 @@ import {
   computeSmoothness,
   compareSymmetry,
   jointAngle,
+  METRIC_REFERENCES,
 } from './metrics.js';
 
 const INTAKE_KEY = 'motion-analysis-intake';
@@ -328,23 +329,24 @@ function fmt(v, suffix = '') {
 function renderReport(report) {
   const s = report.summary;
   const metrics = [
-    ['BMI', s.bmi ? `${s.bmi} (${s.bmiCategory})` : 'n/a'],
-    ['Front shoulder tilt', fmt(s.anteriorShoulderTiltDeg, '°')],
-    ['Front hip tilt', fmt(s.anteriorHipTiltDeg, '°')],
-    ['Front head tilt', fmt(s.anteriorHeadTiltDeg, '°')],
-    ['Back shoulder tilt', fmt(s.posteriorShoulderTiltDeg, '°')],
-    ['Back hip tilt', fmt(s.posteriorHipTiltDeg, '°')],
-    ['Right forward-head angle', fmt(s.rightCvaDeg, '°')],
-    ['Right trunk lean', fmt(s.rightTrunkLeanDeg, '°')],
-    ['Left forward-head angle', fmt(s.leftCvaDeg, '°')],
-    ['Left trunk lean', fmt(s.leftTrunkLeanDeg, '°')],
+    ['BMI', s.bmi ? `${s.bmi} (${s.bmiCategory})` : 'n/a', METRIC_REFERENCES.bmi],
+    ['Front shoulder tilt', fmt(s.anteriorShoulderTiltDeg, '°'), METRIC_REFERENCES.shoulderTiltDeg],
+    ['Front hip tilt', fmt(s.anteriorHipTiltDeg, '°'), METRIC_REFERENCES.hipTiltDeg],
+    ['Front head tilt', fmt(s.anteriorHeadTiltDeg, '°'), METRIC_REFERENCES.headTiltDeg],
+    ['Back shoulder tilt', fmt(s.posteriorShoulderTiltDeg, '°'), METRIC_REFERENCES.shoulderTiltDeg],
+    ['Back hip tilt', fmt(s.posteriorHipTiltDeg, '°'), METRIC_REFERENCES.hipTiltDeg],
+    ['Right forward-head angle', fmt(s.rightCvaDeg, '°'), METRIC_REFERENCES.cvaDeg],
+    ['Right trunk lean', fmt(s.rightTrunkLeanDeg, '°'), METRIC_REFERENCES.spinalLeanDeg],
+    ['Left forward-head angle', fmt(s.leftCvaDeg, '°'), METRIC_REFERENCES.cvaDeg],
+    ['Left trunk lean', fmt(s.leftTrunkLeanDeg, '°'), METRIC_REFERENCES.spinalLeanDeg],
   ];
 
   const metricsHtml = metrics
-    .map(([label, value]) => `
+    .map(([label, value, ref]) => `
       <div class="metric-card">
         <div class="label">${label}</div>
         <div class="value">${value}</div>
+        ${ref ? `<div class="ref-note">${ref}</div>` : ''}
       </div>`)
     .join('');
 
