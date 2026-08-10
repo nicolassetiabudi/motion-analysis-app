@@ -7,17 +7,30 @@ uploaded anywhere.
 
 ## What it does today
 
-**Posture Check** — single-frame symmetry: shoulder tilt, hip tilt, trunk
-lean, lateral shift, head tilt, with simple asymmetry flags.
+**Intake** — first screen collects name, age, sex, weight (kg), height (cm),
+and email. Stored on-device (localStorage) and reused as the header on every
+report.
+
+**Posture Check (static)** — a guided flow through 4 views: front, back,
+right side, left side. Each view has its own positioning/lighting
+instructions and live on-screen feedback ("move back", "center yourself",
+"good position — hold still") before you capture. After all 4 views:
+- Numeric summary: shoulder/hip/head tilt, trunk lean, forward-head angle
+  (craniovertebral angle), knee angle, BMI
+- Plain-language findings ("One shoulder sits noticeably higher than the
+  other", etc.) with a flagged "areas to improve" list
+- **Email results**: opens your own mail app with the report pre-filled —
+  you review and hit send yourself, nothing is sent automatically
+- **Save to spreadsheet**: downloads a CSV of every report you've generated
+  on this device (running local history), ready to open in Excel or Google
+  Sheets
 
 **Movement Test (AROM)** — record a movement (elbow / shoulder / hip / knee
 flexion), then get:
 - Active range of motion (min/max/range angle) per side
 - Left vs right symmetry index (%)
 - Smoothness score (normalized jerk — lower is smoother)
-
-Results can be exported as JSON (raw angle time-series + summaries included)
-for further analysis in Excel/Python/R.
+- Export as JSON (raw angle time-series + summaries)
 
 ## Running it
 
@@ -42,28 +55,31 @@ Open the HTTPS URL it gives you on your phone's browser (Chrome/Safari).
 **Option C — deploy for free:**
 Drag the `motion-analysis-app` folder into [Netlify Drop](https://app.netlify.com/drop)
 or push it to a GitHub repo and enable GitHub Pages — both give you a
-permanent HTTPS URL you can bookmark on your phone.
+permanent HTTPS URL you can bookmark on your phone. This project is already
+set up this way — see the live link shared in chat.
 
 ## Using it
 
-1. Allow camera access when prompted. Point the rear camera so your full
-   body is in frame.
-2. **Posture Check**: stand naturally, tap "Capture Posture" — repeat before/after
-   an intervention to compare.
-3. **Movement Test**: pick a joint, tap "Start Recording", perform the
-   movement slowly through its full range (e.g. raise both arms overhead),
-   tap "Stop Recording" to see AROM + symmetry + smoothness.
-4. Tap "Export JSON" any time to download all captured results.
+1. Fill in your details (name, age, sex, weight, height, email) — one time,
+   remembered for next visit.
+2. Choose **Posture check** or **Movement test** from the menu.
+3. **Posture check**: read the tips for each view, tap "I'm ready", wait for
+   "good position", tap **Capture**, then **Next**. Repeat for all 4 views.
+   You'll land on a report you can email to yourself or save to a running
+   CSV spreadsheet.
+4. **Movement test**: pick a joint, tap "Start Recording", perform the
+   movement slowly through its full range, tap "Stop Recording" to see
+   AROM + symmetry + smoothness. Export as JSON any time.
 
 ## Project structure
 
 ```
 motion-analysis-app/
-  index.html        UI shell
+  index.html        UI shell — intake, menu, instructions, camera, report screens
   css/style.css      styling
   js/pose.js         MediaPipe camera + detection wrapper
   js/metrics.js       pure analysis functions (unit-testable, no DOM)
-  js/app.js          UI state, recording buffer, export
+  js/app.js          screen flow, state, recording buffer, email/CSV export
 ```
 
 `metrics.js` has no DOM/camera dependencies, so it can be tested standalone:
@@ -72,17 +88,39 @@ node --input-type=module -e "import { angleAtVertex } from './js/metrics.js'; co
 # -> 180 (straight line)
 ```
 
+## Posture metrics reference
+
+**Front/back views** (`computePostureSymmetry`): shoulder tilt, hip tilt,
+head tilt (all degrees from horizontal), trunk lean and lateral shift
+(shoulder midpoint vs hip midpoint).
+
+**Side views** (`computeLateralPosture`): craniovertebral angle (ear-to-
+shoulder line vs horizontal — a common forward-head-posture screen, roughly
+<50° flagged), trunk lean from vertical, and knee line offset (whether the
+knee sits in front of or behind the hip-ankle line, distinguishing a bent
+knee from a locked/hyperextended one).
+
+All thresholds are simple screening heuristics, not clinical cutoffs — see
+the disclaimer shown on every report.
+
 ## Known limitations / good next steps
 
-- **Camera angle matters.** Shoulder/hip tilt assumes a roughly front-on
-  view; trunk lean is most meaningful from the side. Right now nothing
-  enforces or detects which view you're in — worth adding a guide overlay.
-- **Single pose only** (one person in frame at a time) — fine for self-checks.
-- **Smoothness score** (normalized jerk) is a relative metric — good for
-  comparing the same movement over time or left vs right, not an absolute
-  clinical score.
-- **No persistence yet** — results only live in the page until exported;
-  could add local storage or a backend to track progress across sessions.
+- **Not a medical device.** This is an automated visual screening from 2D
+  camera landmarks, not a diagnosis. The report says so; keep that framing
+  if you build on it.
+- **Posterior view left/right labeling**: MediaPipe's left/right landmark
+  labels are trained mostly on front-facing images, so when the back is to
+  the camera the "left"/"right" naming may not always match anatomical
+  left/right. Treat back-view asymmetry as a screening signal, not an exact
+  side call.
+- **Email is manual-send by design** — it opens the user's mail client
+  pre-filled rather than sending automatically, so nothing leaves the device
+  without the person choosing to hit send.
+- **Spreadsheet is local-history CSV**, not a live shared spreadsheet. A
+  true multi-user spreadsheet (e.g. auto-appending to a shared Google Sheet)
+  needs a backend + Google Sheets API credentials — a good next step if
+  results need to be pooled across people/devices rather than kept per-phone.
+- **Single pose only** (one person in frame at a time).
 - **Model quality**: using `pose_landmarker_lite` for speed on phones; swap
   to the `full` or `heavy` model in `pose.js` (`MODEL_URL`) for higher
   accuracy if your phone can handle it.

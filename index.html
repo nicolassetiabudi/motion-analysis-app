@@ -13,40 +13,130 @@
   </header>
 
   <main>
-    <div class="camera-wrap">
-      <video id="video" playsinline autoplay muted></video>
-      <canvas id="overlay"></canvas>
-    </div>
 
-    <div class="controls">
-      <div class="control-row">
-        <label for="modeSelect">Mode</label>
-        <select id="modeSelect">
-          <option value="posture">Posture Check</option>
-          <option value="movement">Movement Test (AROM)</option>
-        </select>
+    <!-- Screen: intake form -->
+    <section id="screen-intake" class="screen">
+      <h2>Your details</h2>
+      <p class="muted">Used to label your report and calculate BMI context. Nothing leaves your device.</p>
+      <form id="intakeForm">
+        <div class="field">
+          <label for="fName">Name</label>
+          <input type="text" id="fName" required autocomplete="name" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="fAge">Age</label>
+            <input type="number" id="fAge" min="1" max="120" required />
+          </div>
+          <div class="field">
+            <label for="fSex">Sex</label>
+            <select id="fSex" required>
+              <option value="">Select</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="fWeight">Weight (kg)</label>
+            <input type="number" id="fWeight" min="1" max="400" step="0.1" required />
+          </div>
+          <div class="field">
+            <label for="fHeight">Height (cm)</label>
+            <input type="number" id="fHeight" min="50" max="250" step="0.1" required />
+          </div>
+        </div>
+        <div class="field">
+          <label for="fEmail">Email</label>
+          <input type="email" id="fEmail" required autocomplete="email" />
+        </div>
+        <button type="submit" class="primary">Continue</button>
+      </form>
+    </section>
+
+    <!-- Screen: main menu -->
+    <section id="screen-menu" class="screen" hidden>
+      <h2 id="menuGreeting">Hi</h2>
+      <div class="menu-cards">
+        <button id="goPostureBtn" class="menu-card">
+          <span class="menu-card-title">Posture check</span>
+          <span class="menu-card-sub">Static — 4 guided views</span>
+        </button>
+        <button id="goMovementBtn" class="menu-card">
+          <span class="menu-card-title">Movement test</span>
+          <span class="menu-card-sub">Active range of motion</span>
+        </button>
+      </div>
+      <button id="editInfoBtn" class="link-btn">Edit my details</button>
+    </section>
+
+    <!-- Screen: posture view instructions -->
+    <section id="screen-instructions" class="screen" hidden>
+      <h2 id="instrTitle">View 1 of 4 — Front view</h2>
+      <ul id="instrList" class="instr-list"></ul>
+      <button id="instrReadyBtn" class="primary">I'm ready</button>
+      <button id="instrBackBtn" class="link-btn">Back to menu</button>
+    </section>
+
+    <!-- Screen: camera (shared by posture capture + movement test) -->
+    <section id="screen-camera" class="screen" hidden>
+      <div id="viewBanner" class="view-banner" hidden></div>
+      <div class="camera-wrap">
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="overlay"></canvas>
       </div>
 
-      <div class="control-row" id="jointRow" style="display:none;">
-        <label for="jointSelect">Joint</label>
-        <select id="jointSelect">
-          <option value="Elbow">Elbow flexion</option>
-          <option value="Shoulder">Shoulder flexion</option>
-          <option value="Hip">Hip flexion</option>
-          <option value="Knee">Knee flexion</option>
-        </select>
+      <!-- Posture capture controls -->
+      <div id="postureControls" hidden>
+        <div id="frameQuality" class="frame-quality">Checking position...</div>
+        <div class="control-row buttons">
+          <button id="captureViewBtn" class="primary">Capture</button>
+        </div>
+        <div id="captureConfirm" class="capture-confirm" hidden>
+          <p id="captureConfirmText"></p>
+          <div class="control-row buttons">
+            <button id="retakeBtn">Retake</button>
+            <button id="nextViewBtn" class="primary">Next</button>
+          </div>
+        </div>
       </div>
 
+      <!-- Movement test controls -->
+      <div id="movementControls" hidden>
+        <div class="controls">
+          <div class="control-row">
+            <label for="jointSelect">Joint</label>
+            <select id="jointSelect">
+              <option value="Elbow">Elbow flexion</option>
+              <option value="Shoulder">Shoulder flexion</option>
+              <option value="Hip">Hip flexion</option>
+              <option value="Knee">Knee flexion</option>
+            </select>
+          </div>
+          <div class="control-row buttons">
+            <button id="recordBtn" class="primary">Start Recording</button>
+            <button id="exportMovementBtn">Export JSON</button>
+          </div>
+        </div>
+        <div id="liveMetrics" class="live-metrics">Waiting for camera...</div>
+        <section id="movementResults" class="results"></section>
+        <button id="movementBackBtn" class="link-btn">Back to menu</button>
+      </div>
+    </section>
+
+    <!-- Screen: posture report -->
+    <section id="screen-report" class="screen" hidden>
+      <h2>Posture report</h2>
+      <div id="reportBody"></div>
       <div class="control-row buttons">
-        <button id="captureBtn">Capture Posture</button>
-        <button id="recordBtn" style="display:none;">Start Recording</button>
-        <button id="exportBtn">Export JSON</button>
+        <button id="emailReportBtn" class="primary">Email results</button>
+        <button id="csvReportBtn">Save to spreadsheet (CSV)</button>
       </div>
-    </div>
+      <button id="reportBackBtn" class="link-btn">Back to menu</button>
+    </section>
 
-    <div id="liveMetrics" class="live-metrics">Waiting for camera...</div>
-
-    <section id="results" class="results"></section>
   </main>
 
   <script type="module" src="js/app.js"></script>
