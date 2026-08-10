@@ -59,9 +59,19 @@ export function angleAtVertex(a, b, c) {
   return (Math.acos(cos) * 180) / Math.PI;
 }
 
-/** Angle of the line P1->P2 relative to horizontal, in degrees. Positive = P2 lower than P1. */
+/**
+ * Angle of the line P1->P2 relative to horizontal, in degrees, folded into
+ * (-90, 90] so a level line always reads near 0 regardless of which point
+ * has the smaller x. Without the fold, a facing-the-camera rear-camera shot
+ * (not mirrored) has LEFT_SHOULDER sitting at a *larger* x than
+ * RIGHT_SHOULDER — a level pair of shoulders then computes to ~180°/-180°
+ * instead of ~0°, which is meaningless as "tilt" without this correction.
+ */
 export function tiltFromHorizontal(p1, p2) {
-  return (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+  let angle = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+  if (angle > 90) angle -= 180;
+  else if (angle <= -90) angle += 180;
+  return angle;
 }
 
 /** Angle of the line top->bottom relative to vertical, in degrees. 0 = perfectly upright. */
