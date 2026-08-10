@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Motion Analysis</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Motion Analysis</h1>
+    <span id="status">Starting...</span>
+  </header>
+
+  <main>
+    <div class="camera-wrap">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="controls">
+      <div class="control-row">
+        <label for="modeSelect">Mode</label>
+        <select id="modeSelect">
+          <option value="posture">Posture Check</option>
+          <option value="movement">Movement Test (AROM)</option>
+        </select>
+      </div>
+
+      <div class="control-row" id="jointRow" style="display:none;">
+        <label for="jointSelect">Joint</label>
+        <select id="jointSelect">
+          <option value="Elbow">Elbow flexion</option>
+          <option value="Shoulder">Shoulder flexion</option>
+          <option value="Hip">Hip flexion</option>
+          <option value="Knee">Knee flexion</option>
+        </select>
+      </div>
+
+      <div class="control-row buttons">
+        <button id="captureBtn">Capture Posture</button>
+        <button id="recordBtn" style="display:none;">Start Recording</button>
+        <button id="exportBtn">Export JSON</button>
+      </div>
+    </div>
+
+    <div id="liveMetrics" class="live-metrics">Waiting for camera...</div>
+
+    <section id="results" class="results"></section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
