@@ -234,6 +234,22 @@ form button[type="submit"] { width: 100%; margin-top: 4px; }
 
 .result-head { font-weight: 600; color: #22d3ee; margin-bottom: 4px; }
 
+.result-card img {
+  width: 100%;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: block;
+  background: #000;
+}
+
+.menu-card-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* Report */
 
 .report-meta {
