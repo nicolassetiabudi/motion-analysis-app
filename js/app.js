@@ -4,19 +4,21 @@
  * -> report, with local session history and lightweight email/CSV export.
  */
 
-import { initPoseLandmarker, startCamera, detectFrame, drawOverlay } from './pose.js';
+import { initPoseLandmarker, startCamera, detectFrame, drawOverlay, drawMovementAnnotation } from './pose.js';
 import {
   computePostureSymmetry,
   computeLateralPosture,
   assessFrameQuality,
   generatePostureReport,
-  buildAngleSeries,
-  computeAROM,
-  computeSmoothness,
-  compareSymmetry,
-  jointAngle,
   METRIC_REFERENCES,
+  MOVEMENTS,
+  getMovement,
+  VIEW_INSTRUCTIONS,
+  measureMovement,
+  assessMovementFrameQuality,
 } from './metrics.js';
+
+const MOVEMENT_CATEGORIES = [...new Set(MOVEMENTS.map((m) => m.category))];
 
 const INTAKE_KEY = 'motion-analysis-intake';
 const HISTORY_KEY = 'motion-analysis-history';
@@ -104,13 +106,32 @@ const els = {
   retakeBtn: document.getElementById('retakeBtn'),
   nextViewBtn: document.getElementById('nextViewBtn'),
 
-  movementControls: document.getElementById('movementControls'),
-  jointSelect: document.getElementById('jointSelect'),
-  recordBtn: document.getElementById('recordBtn'),
-  exportMovementBtn: document.getElementById('exportMovementBtn'),
-  liveMetrics: document.getElementById('liveMetrics'),
+  categoryList: document.getElementById('categoryList'),
+  categoryBackBtn: document.getElementById('categoryBackBtn'),
+
+  movementListTitle: document.getElementById('movementListTitle'),
+  movementList: document.getElementById('movementList'),
+  movementListBackBtn: document.getElementById('movementListBackBtn'),
+
+  movementSideTitle: document.getElementById('movementSideTitle'),
+  sideLeftBtn: document.getElementById('sideLeftBtn'),
+  sideRightBtn: document.getElementById('sideRightBtn'),
+  movementSideBackBtn: document.getElementById('movementSideBackBtn'),
+
+  movementCaptureControls: document.getElementById('movementCaptureControls'),
+  movementFrameQuality: document.getElementById('movementFrameQuality'),
+  movementLiveAngle: document.getElementById('movementLiveAngle'),
+  captureMovementBtn: document.getElementById('captureMovementBtn'),
+  movementCaptureConfirm: document.getElementById('movementCaptureConfirm'),
+  movementCaptureConfirmText: document.getElementById('movementCaptureConfirmText'),
+  movementRetakeBtn: document.getElementById('movementRetakeBtn'),
+  movementSaveBtn: document.getElementById('movementSaveBtn'),
+  movementCameraBackBtn: document.getElementById('movementCameraBackBtn'),
+
   movementResults: document.getElementById('movementResults'),
-  movementBackBtn: document.getElementById('movementBackBtn'),
+  testAnotherMovementBtn: document.getElementById('testAnotherMovementBtn'),
+  exportMovementBtn: document.getElementById('exportMovementBtn'),
+  movementResultsBackBtn: document.getElementById('movementResultsBackBtn'),
 
   reportBody: document.getElementById('reportBody'),
   emailReportBtn: document.getElementById('emailReportBtn'),
@@ -131,12 +152,12 @@ const state = {
   pendingCapture: null,
   lastLandmarks: null,
 
-  mode: 'posture',
-  jointPair: 'Elbow',
-  recording: false,
-  recordBuffer: [],
-  recordStartTime: 0,
-  movementHistory: [],
+  mode: 'posture', // 'posture' | 'movement' — which flow screen-instructions belongs to
+  movementCategory: null,
+  movementKey: null,
+  movementSide: null,
+  pendingMovementCapture: null,
+  movementCaptures: [],
 
   lastReport: null,
 };
@@ -227,12 +248,19 @@ function loop() {
 /* ---------- posture guided flow ---------- */
 
 els.goPostureBtn.addEventListener('click', () => {
+  state.mode = 'posture';
   state.postureStepIndex = 0;
   state.captures = {};
   showInstructionsForStep();
 });
 
-els.instrBackBtn.addEventListener('click', () => showScreen('screen-menu'));
+els.instrBackBtn.addEventListener('click', () => {
+  if (state.mode === 'movement') {
+    showScreen('screen-movement-side');
+  } else {
+    showScreen('screen-menu');
+  }
+});
 
 function showInstructionsForStep() {
   const step = POSTURE_STEPS[state.postureStepIndex];
@@ -241,14 +269,34 @@ function showInstructionsForStep() {
   showScreen('screen-instructions');
 }
 
+function showInstructionsForMovement() {
+  const movement = getMovement(state.movementKey);
+  const sideLabel = state.movementSide === 'left' ? 'Left' : 'Right';
+  els.instrTitle.textContent = `${sideLabel} ${movement.category.toLowerCase()} — ${movement.label.toLowerCase()}`;
+  const lines = [VIEW_INSTRUCTIONS[movement.view], movement.startPosition, ...movement.steps];
+  if (movement.notes) lines.push(movement.notes);
+  els.instrList.innerHTML = lines.map((t) => `<li>${t}</li>`).join('');
+  showScreen('screen-instructions');
+}
+
 els.instrReadyBtn.addEventListener('click', async () => {
-  state.activeCameraMode = 'posture';
-  els.postureControls.hidden = false;
-  els.movementControls.hidden = true;
-  els.viewBanner.hidden = false;
-  els.captureConfirm.hidden = true;
-  const step = POSTURE_STEPS[state.postureStepIndex];
-  els.viewBanner.textContent = step.title;
+  if (state.mode === 'movement') {
+    state.activeCameraMode = 'movement';
+    els.postureControls.hidden = true;
+    els.movementCaptureControls.hidden = false;
+    els.movementCaptureConfirm.hidden = true;
+    els.viewBanner.hidden = false;
+    const movement = getMovement(state.movementKey);
+    els.viewBanner.textContent = `${state.movementSide === 'left' ? 'Left' : 'Right'} ${movement.label}`;
+  } else {
+    state.activeCameraMode = 'posture';
+    els.postureControls.hidden = false;
+    els.movementCaptureControls.hidden = true;
+    els.viewBanner.hidden = false;
+    els.captureConfirm.hidden = true;
+    const step = POSTURE_STEPS[state.postureStepIndex];
+    els.viewBanner.textContent = step.title;
+  }
   showScreen('screen-camera');
   try {
     await ensureCameraReady();
@@ -468,95 +516,174 @@ els.csvReportBtn.addEventListener('click', () => {
 
 els.reportBackBtn.addEventListener('click', () => showScreen('screen-menu'));
 
-/* ---------- movement test (unchanged behaviour, adapted to shared camera screen) ---------- */
+/* ---------- movement test: category -> movement -> side -> instructions -> single-photo capture -> results ---------- */
 
-els.goMovementBtn.addEventListener('click', async () => {
-  state.activeCameraMode = 'movement';
-  els.postureControls.hidden = true;
-  els.movementControls.hidden = false;
-  els.viewBanner.hidden = true;
-  showScreen('screen-camera');
-  try {
-    await ensureCameraReady();
-  } catch (err) {
-    els.status.textContent = `Camera error: ${err.message}`;
-  }
+els.goMovementBtn.addEventListener('click', () => {
+  renderCategoryList();
+  showScreen('screen-movement-category');
 });
 
-els.movementBackBtn.addEventListener('click', () => showScreen('screen-menu'));
+els.categoryBackBtn.addEventListener('click', () => showScreen('screen-menu'));
+
+function renderCategoryList() {
+  els.categoryList.innerHTML = MOVEMENT_CATEGORIES.map(
+    (cat) => `<button class="menu-card" data-category="${cat}">
+      <span class="menu-card-title">${cat}</span>
+      <span class="menu-card-sub">${MOVEMENTS.filter((m) => m.category === cat).map((m) => m.label).join(', ')}</span>
+    </button>`
+  ).join('');
+  els.categoryList.querySelectorAll('button[data-category]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.movementCategory = btn.dataset.category;
+      renderMovementList();
+      showScreen('screen-movement-list');
+    });
+  });
+}
+
+function renderMovementList() {
+  els.movementListTitle.textContent = state.movementCategory;
+  const movements = MOVEMENTS.filter((m) => m.category === state.movementCategory);
+  els.movementList.innerHTML = movements
+    .map(
+      (m) => `<button class="menu-card" data-key="${m.key}">
+        <span class="menu-card-title">${m.label}</span>
+        <span class="menu-card-sub">Normal range: ${m.normalRangeDeg[0]}–${m.normalRangeDeg[1]}°</span>
+      </button>`
+    )
+    .join('');
+  els.movementList.querySelectorAll('button[data-key]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.movementKey = btn.dataset.key;
+      els.movementSideTitle.textContent = `Which side? — ${getMovement(state.movementKey).label}`;
+      showScreen('screen-movement-side');
+    });
+  });
+}
+
+els.movementListBackBtn.addEventListener('click', () => showScreen('screen-movement-category'));
+els.movementSideBackBtn.addEventListener('click', () => showScreen('screen-movement-list'));
+
+function chooseSide(side) {
+  state.movementSide = side;
+  state.mode = 'movement';
+  showInstructionsForMovement();
+}
+els.sideLeftBtn.addEventListener('click', () => chooseSide('left'));
+els.sideRightBtn.addEventListener('click', () => chooseSide('right'));
+
+els.movementCameraBackBtn.addEventListener('click', () => {
+  state.activeCameraMode = null;
+  showScreen('screen-movement-side');
+});
 
 function runMovementLive(landmarks) {
+  const movement = getMovement(state.movementKey);
   if (!landmarks) {
-    els.liveMetrics.textContent = 'No pose detected — step back so your full body is visible';
+    els.movementFrameQuality.textContent = 'No pose detected — step into frame.';
+    els.movementFrameQuality.classList.remove('ok');
+    els.movementLiveAngle.textContent = 'Live angle: --°';
     return;
   }
-  if (state.recording) {
-    state.recordBuffer.push({ t: performance.now() - state.recordStartTime, landmarks });
-  }
-  const left = jointAngle(landmarks, `left${state.jointPair}`);
-  const right = jointAngle(landmarks, `right${state.jointPair}`);
-  els.liveMetrics.textContent = `Live angle — L: ${left !== null ? left.toFixed(1) : '--'}°  R: ${right !== null ? right.toFixed(1) : '--'}°  (${state.recordBuffer.length} frames buffered)`;
-}
+  const quality = assessMovementFrameQuality(landmarks, movement, state.movementSide);
+  els.movementFrameQuality.textContent = quality.message;
+  els.movementFrameQuality.classList.toggle('ok', quality.ok);
 
-els.jointSelect.addEventListener('change', (e) => {
-  state.jointPair = e.target.value;
-});
-
-els.recordBtn.addEventListener('click', () => {
-  if (!state.recording) {
-    state.recording = true;
-    state.recordBuffer = [];
-    state.recordStartTime = performance.now();
-    els.recordBtn.textContent = 'Stop Recording';
+  const result = measureMovement(landmarks, movement, state.movementSide);
+  if (result.valid) {
+    els.movementLiveAngle.textContent = `Live angle: ${result.clinicalDeg}°  (normal range ${movement.normalRangeDeg[0]}–${movement.normalRangeDeg[1]}°)`;
+    drawMovementAnnotation(ctx, result.points, result.vertexIndex, result.clinicalDeg, els.canvas.width, els.canvas.height);
   } else {
-    state.recording = false;
-    els.recordBtn.textContent = 'Start Recording';
-    finalizeMovementRecording();
+    els.movementLiveAngle.textContent = 'Live angle: --°';
   }
-});
-
-function finalizeMovementRecording() {
-  if (state.recordBuffer.length < 10) {
-    els.status.textContent = 'Recording too short — try again with a slower, fuller movement';
-    return;
-  }
-  const leftSeries = buildAngleSeries(state.recordBuffer, `left${state.jointPair}`);
-  const rightSeries = buildAngleSeries(state.recordBuffer, `right${state.jointPair}`);
-
-  const leftAROM = computeAROM(leftSeries);
-  const rightAROM = computeAROM(rightSeries);
-  const leftSmooth = computeSmoothness(leftSeries);
-  const rightSmooth = computeSmoothness(rightSeries);
-  const symmetry = compareSymmetry(leftAROM, rightAROM);
-
-  const result = {
-    joint: state.jointPair,
-    frames: state.recordBuffer.length,
-    left: { arom: leftAROM, smoothness: leftSmooth },
-    right: { arom: rightAROM, smoothness: rightSmooth },
-    symmetry,
-  };
-  state.movementHistory.unshift({ type: 'movement', timestamp: new Date().toISOString(), result });
-  renderMovementHistory();
-  els.status.textContent = 'Recording analyzed';
 }
 
-function renderMovementHistory() {
-  els.movementResults.innerHTML = state.movementHistory
-    .map((entry, i) => {
-      const r = entry.result;
+els.captureMovementBtn.addEventListener('click', () => {
+  const movement = getMovement(state.movementKey);
+  const landmarks = state.lastLandmarks;
+  if (!landmarks) {
+    els.movementFrameQuality.textContent = 'No pose detected — try again.';
+    return;
+  }
+  const result = measureMovement(landmarks, movement, state.movementSide);
+  if (!result.valid) {
+    els.movementCaptureConfirmText.textContent = `Capture may be unreliable (${result.reason}). You can retake or continue.`;
+    els.movementCaptureConfirm.hidden = false;
+    state.pendingMovementCapture = null;
+    return;
+  }
+
+  // Freeze the current frame onto an offscreen canvas, with the measured
+  // line/angle burned in, so the saved image shows exactly what was measured.
+  const snap = document.createElement('canvas');
+  snap.width = els.canvas.width;
+  snap.height = els.canvas.height;
+  const snapCtx = snap.getContext('2d');
+  snapCtx.drawImage(els.video, 0, 0, snap.width, snap.height);
+  drawMovementAnnotation(snapCtx, result.points, result.vertexIndex, result.clinicalDeg, snap.width, snap.height);
+
+  state.pendingMovementCapture = {
+    result,
+    imageDataUrl: snap.toDataURL('image/jpeg', 0.85),
+  };
+  els.movementCaptureConfirmText.textContent = `Captured — ${result.clinicalDeg}° (normal range ${movement.normalRangeDeg[0]}–${movement.normalRangeDeg[1]}°).`;
+  els.movementCaptureConfirm.hidden = false;
+});
+
+els.movementRetakeBtn.addEventListener('click', () => {
+  state.pendingMovementCapture = null;
+  els.movementCaptureConfirm.hidden = true;
+});
+
+els.movementSaveBtn.addEventListener('click', () => {
+  if (!state.pendingMovementCapture) {
+    els.movementCaptureConfirm.hidden = true;
+    return;
+  }
+  const movement = getMovement(state.movementKey);
+  const { result, imageDataUrl } = state.pendingMovementCapture;
+  state.movementCaptures.unshift({
+    key: movement.key,
+    category: movement.category,
+    label: movement.label,
+    side: state.movementSide,
+    clinicalDeg: result.clinicalDeg,
+    normalRangeDeg: movement.normalRangeDeg,
+    notes: movement.notes || null,
+    imageDataUrl,
+    timestamp: new Date().toISOString(),
+  });
+  state.pendingMovementCapture = null;
+  els.movementCaptureConfirm.hidden = true;
+  state.activeCameraMode = null;
+  renderMovementResults();
+  showScreen('screen-movement-results');
+});
+
+function renderMovementResults() {
+  els.movementResults.innerHTML = state.movementCaptures
+    .map((c) => {
+      const inRange = c.clinicalDeg >= c.normalRangeDeg[0] && c.clinicalDeg <= c.normalRangeDeg[1];
       return `<div class="result-card">
-        <div class="result-head">#${state.movementHistory.length - i} Movement (${r.joint}) — ${new Date(entry.timestamp).toLocaleTimeString()}</div>
-        <div>Left ROM: ${r.left.arom.valid ? r.left.arom.romDeg + '°' : 'n/a'} · Right ROM: ${r.right.arom.valid ? r.right.arom.romDeg + '°' : 'n/a'}</div>
-        <div>Symmetry: ${r.symmetry.valid ? r.symmetry.symmetryIndexPct + '% (' + r.symmetry.interpretation + ')' : 'n/a'}</div>
-        <div>Smoothness (jerk, lower=smoother) — L: ${r.left.smoothness.valid ? r.left.smoothness.normalizedJerk : 'n/a'} · R: ${r.right.smoothness.valid ? r.right.smoothness.normalizedJerk : 'n/a'}</div>
+        <img src="${c.imageDataUrl}" alt="${c.label} (${c.side})" />
+        <div class="result-head">${c.side === 'left' ? 'Left' : 'Right'} ${c.category} — ${c.label}</div>
+        <div>${c.clinicalDeg}° &mdash; normal range ${c.normalRangeDeg[0]}–${c.normalRangeDeg[1]}° ${inRange ? '(within range)' : '(outside typical range)'}</div>
+        ${c.notes ? `<div class="ref-note">${c.notes}</div>` : ''}
+        <div class="ref-note">${new Date(c.timestamp).toLocaleString()}</div>
       </div>`;
     })
-    .join('');
+    .join('') || '<div class="finding-item ok">No movements captured yet.</div>';
 }
 
+els.testAnotherMovementBtn.addEventListener('click', () => {
+  renderCategoryList();
+  showScreen('screen-movement-category');
+});
+
+els.movementResultsBackBtn.addEventListener('click', () => showScreen('screen-menu'));
+
 els.exportMovementBtn.addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state.movementHistory, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(state.movementCaptures, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -28,13 +28,28 @@ export const LM = {
   RIGHT_ELBOW: 14,
   LEFT_WRIST: 15,
   RIGHT_WRIST: 16,
+  LEFT_PINKY: 17,
+  RIGHT_PINKY: 18,
+  LEFT_INDEX: 19,
+  RIGHT_INDEX: 20,
+  LEFT_THUMB: 21,
+  RIGHT_THUMB: 22,
   LEFT_HIP: 23,
   RIGHT_HIP: 24,
   LEFT_KNEE: 25,
   RIGHT_KNEE: 26,
   LEFT_ANKLE: 27,
   RIGHT_ANKLE: 28,
+  LEFT_HEEL: 29,
+  RIGHT_HEEL: 30,
+  LEFT_FOOT_INDEX: 31,
+  RIGHT_FOOT_INDEX: 32,
 };
+
+/** Resolve a side-relative landmark name (e.g. 'SHOULDER') to its LM index for 'left'|'right'. */
+function sidePoint(side, name) {
+  return LM[(side === 'left' ? 'LEFT_' : 'RIGHT_') + name];
+}
 
 // ---------- low-level geometry ----------
 
@@ -561,5 +576,273 @@ export function assessFrameQuality(landmarks, viewType, side) {
     return { ok: false, message: 'Move a bit further from the camera.' };
   }
 
+  return { ok: true, message: 'Good position — hold still and capture.' };
+}
+
+// ---------- guided joint movement catalog (single end-position photo) ----------
+
+/**
+ * Every movement: which 2-3 landmarks define the angle, which camera view is
+ * needed, how to convert the raw geometric angle into a clinical-style degree
+ * (0° = neutral/start, increasing = more motion), start position + step
+ * instructions, and a normal AROM reference range from goniometry literature
+ * (AAOS-style averages — guides, not diagnostic cutoffs; real ranges vary by
+ * age/sex/body type).
+ *
+ * conversion:
+ *  'direct'   — raw vertex angle already reads ~0 at neutral (e.g. shoulder
+ *               flexion: arm-down and torso-down point the same way at rest).
+ *  'invert'   — 180 - raw vertex angle (limb segments that are ~180° / straight
+ *               at neutral, e.g. elbow, knee, hip).
+ *  'deviation90' — |raw vertex angle - 90| (ankle, where neutral is a right angle).
+ *  'tiltDeviation90' — 90 - |raw tilt| (hand-orientation proxies referenced from
+ *               a vertical "thumb up" neutral).
+ *
+ * Every movement is tested one side at a time — the app asks which side.
+ */
+export const MOVEMENTS = [
+  {
+    key: 'shoulderFlexion', category: 'Shoulder', label: 'Flexion',
+    points: ['HIP', 'SHOULDER', 'ELBOW'], formula: 'vertex', conversion: 'direct',
+    view: 'side',
+    startPosition: 'Stand with the tested arm’s side facing the camera, feet shoulder-width apart, arm relaxed by your side, palm facing your body.',
+    steps: [
+      'Keep your elbow straight throughout.',
+      'Raise your arm forward and up as high as comfortable.',
+      'Hold at your highest point, then capture.',
+    ],
+    normalRangeDeg: [0, 180],
+  },
+  {
+    key: 'shoulderAbduction', category: 'Shoulder', label: 'Abduction',
+    points: ['HIP', 'SHOULDER', 'ELBOW'], formula: 'vertex', conversion: 'direct',
+    view: 'front',
+    startPosition: 'Face the camera directly, feet shoulder-width apart, arm relaxed by your side, palm facing forward.',
+    steps: [
+      'Keep your elbow straight throughout.',
+      'Raise your arm out to the side and up as high as comfortable.',
+      'Hold at your highest point, then capture.',
+    ],
+    normalRangeDeg: [0, 180],
+  },
+  {
+    key: 'shoulderExternalRotation', category: 'Shoulder', label: 'External rotation',
+    points: ['HIP', 'SHOULDER', 'WRIST'], formula: 'vertex', conversion: 'direct',
+    view: 'front',
+    startPosition: 'Face the camera directly. Tuck your elbow against your side and bend it 90°, forearm pointing straight forward.',
+    steps: [
+      'Keep your elbow pinned to your side the whole time.',
+      'Rotate your forearm outward, away from your body, as far as comfortable.',
+      'Hold, then capture.',
+    ],
+    normalRangeDeg: [0, 90],
+    notes: 'Camera-based rotation tracking has real accuracy limits since part of this motion moves toward/away from the camera. Treat this as an approximate, relative indicator rather than a precise measurement.',
+  },
+  {
+    key: 'elbowFlexion', category: 'Elbow', label: 'Flexion',
+    points: ['SHOULDER', 'ELBOW', 'WRIST'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Stand sideways to the camera, arm relaxed by your side, elbow straight.',
+    steps: ['Bend your elbow, bringing your hand toward your shoulder as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 150],
+  },
+  {
+    key: 'elbowExtension', category: 'Elbow', label: 'Extension',
+    points: ['SHOULDER', 'ELBOW', 'WRIST'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Stand sideways to the camera with your elbow bent.',
+    steps: ['Straighten your elbow as far as you can.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 10],
+    notes: 'Normal is close to 0° (fully straight); a small positive value here can also reflect normal elbow hyperextension, which is common.',
+  },
+  {
+    key: 'elbowPronation', category: 'Elbow', label: 'Pronation',
+    points: ['INDEX', 'PINKY'], formula: 'tilt', conversion: 'tiltDeviation90',
+    view: 'front',
+    startPosition: 'Face the camera. Tuck your elbow at your side, bent 90°, forearm pointing forward, thumb pointing up (neutral).',
+    steps: ['Keep your elbow tucked at your side the whole time.', 'Rotate your forearm so your palm turns to face down, as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 80],
+    notes: 'Hand-orientation tracking from a general body-pose model is approximate — treat this as a rough indicator, not a precise measurement.',
+  },
+  {
+    key: 'elbowSupination', category: 'Elbow', label: 'Supination',
+    points: ['INDEX', 'PINKY'], formula: 'tilt', conversion: 'tiltDeviation90',
+    view: 'front',
+    startPosition: 'Face the camera. Tuck your elbow at your side, bent 90°, forearm pointing forward, thumb pointing up (neutral).',
+    steps: ['Keep your elbow tucked at your side the whole time.', 'Rotate your forearm so your palm turns to face up, as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 80],
+    notes: 'Hand-orientation tracking from a general body-pose model is approximate — treat this as a rough indicator, not a precise measurement.',
+  },
+  {
+    key: 'wristFlexion', category: 'Wrist', label: 'Flexion',
+    points: ['ELBOW', 'WRIST', 'INDEX'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Rest your forearm on a table or your thigh, palm down, hand hanging off the edge, wrist straight. Camera to the side.',
+    steps: ['Bend your wrist downward, moving your hand toward the floor as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 80],
+  },
+  {
+    key: 'wristExtension', category: 'Wrist', label: 'Extension',
+    points: ['ELBOW', 'WRIST', 'INDEX'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Rest your forearm on a table or your thigh, palm down, hand hanging off the edge, wrist straight. Camera to the side.',
+    steps: ['Bend your wrist upward, lifting your hand back as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 70],
+  },
+  {
+    key: 'wristRadialDeviation', category: 'Wrist', label: 'Radial deviation',
+    points: ['ELBOW', 'WRIST', 'INDEX'], formula: 'vertex', conversion: 'invert',
+    view: 'front',
+    startPosition: 'Rest your forearm flat on a table, palm down, wrist straight, camera positioned above looking down at your hand.',
+    steps: ['Keeping your palm flat on the table, bend your wrist sideways toward your thumb as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 20],
+  },
+  {
+    key: 'wristUlnarDeviation', category: 'Wrist', label: 'Ulnar deviation',
+    points: ['ELBOW', 'WRIST', 'INDEX'], formula: 'vertex', conversion: 'invert',
+    view: 'front',
+    startPosition: 'Rest your forearm flat on a table, palm down, wrist straight, camera positioned above looking down at your hand.',
+    steps: ['Keeping your palm flat on the table, bend your wrist sideways toward your little finger as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 30],
+  },
+  {
+    key: 'hipFlexion', category: 'Hip', label: 'Flexion',
+    points: ['SHOULDER', 'HIP', 'KNEE'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Stand sideways to the camera, standing tall, both legs straight.',
+    steps: ['Lift your knee up toward your chest as far as comfortable, balancing on the other leg.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 120],
+  },
+  {
+    key: 'hipExtension', category: 'Hip', label: 'Extension',
+    points: ['SHOULDER', 'HIP', 'KNEE'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Stand sideways to the camera, standing tall, both legs straight. Hold onto something steady for balance.',
+    steps: ['Keeping your knee straight, swing your leg backward as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 30],
+  },
+  {
+    key: 'hipAbduction', category: 'Hip', label: 'Abduction',
+    points: ['SHOULDER', 'HIP', 'KNEE'], formula: 'vertex', conversion: 'invert',
+    view: 'front',
+    startPosition: 'Face the camera directly, standing tall. Hold onto something steady for balance.',
+    steps: ['Keeping your leg straight, lift it out to the side as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 45],
+  },
+  {
+    key: 'kneeFlexion', category: 'Knee', label: 'Flexion',
+    points: ['HIP', 'KNEE', 'ANKLE'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Stand sideways to the camera, or sit sideways on a chair with your leg extended.',
+    steps: ['Bend your knee, bringing your heel toward your buttock (standing) or under the chair (seated) as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 135],
+  },
+  {
+    key: 'kneeExtension', category: 'Knee', label: 'Extension',
+    points: ['HIP', 'KNEE', 'ANKLE'], formula: 'vertex', conversion: 'invert',
+    view: 'side',
+    startPosition: 'Sit sideways on a chair with your knee bent, camera to the side.',
+    steps: ['Straighten your knee fully.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 10],
+  },
+  {
+    key: 'ankleDorsiflexion', category: 'Ankle', label: 'Dorsiflexion',
+    points: ['KNEE', 'ANKLE', 'FOOT_INDEX'], formula: 'vertex', conversion: 'deviation90',
+    view: 'side',
+    startPosition: 'Sit with your leg extended, or stand, camera to the side of your foot.',
+    steps: ['Pull your toes up toward your shin as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 20],
+  },
+  {
+    key: 'anklePlantarflexion', category: 'Ankle', label: 'Plantarflexion',
+    points: ['KNEE', 'ANKLE', 'FOOT_INDEX'], formula: 'vertex', conversion: 'deviation90',
+    view: 'side',
+    startPosition: 'Sit with your leg extended, or stand, camera to the side of your foot.',
+    steps: ['Point your toes away from you, down and forward, as far as comfortable.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 50],
+  },
+  {
+    key: 'ankleInversion', category: 'Ankle', label: 'Inversion',
+    points: ['KNEE', 'ANKLE', 'HEEL'], formula: 'vertex', conversion: 'invert',
+    view: 'back',
+    startPosition: 'Stand with your back to the camera, weight even on both feet.',
+    steps: ['Turn the sole of your foot inward, toward your other foot, as far as comfortable without lifting your heel off the ground.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 30],
+    notes: 'Approximate — true subtalar inversion/eversion is normally measured with markers on the heel bisection, which this app can’t track precisely.',
+  },
+  {
+    key: 'ankleEversion', category: 'Ankle', label: 'Eversion',
+    points: ['KNEE', 'ANKLE', 'HEEL'], formula: 'vertex', conversion: 'invert',
+    view: 'back',
+    startPosition: 'Stand with your back to the camera, weight even on both feet.',
+    steps: ['Turn the sole of your foot outward, away from your other foot, as far as comfortable without lifting your heel off the ground.', 'Hold, then capture.'],
+    normalRangeDeg: [0, 15],
+    notes: 'Approximate — true subtalar inversion/eversion is normally measured with markers on the heel bisection, which this app can’t track precisely.',
+  },
+];
+
+export function getMovement(key) {
+  return MOVEMENTS.find((m) => m.key === key) || null;
+}
+
+export const VIEW_INSTRUCTIONS = {
+  front: 'Position the camera so you’re facing it directly.',
+  side: 'Position the camera to your side (sagittal view).',
+  back: 'Position the camera behind you.',
+};
+
+/**
+ * Measure a movement for one frame + side. Returns the clinical angle plus
+ * the raw landmark points used (for drawing the angle/lines on the captured
+ * photo) or {valid:false} if the needed landmarks aren't visible.
+ */
+export function measureMovement(landmarks, movement, side) {
+  const idxs = movement.points.map((name) => sidePoint(side, name));
+  for (const i of idxs) {
+    if (!visible(landmarks, i, 0.3)) {
+      return { valid: false, reason: 'landmarks not visible — reposition and try again' };
+    }
+  }
+  const pts = idxs.map((i) => landmarks[i]);
+
+  let rawDeg;
+  if (movement.formula === 'tilt') {
+    rawDeg = tiltFromHorizontal(pts[0], pts[1]);
+  } else {
+    rawDeg = angleAtVertex(pts[0], pts[1], pts[2]);
+  }
+  if (rawDeg === null) return { valid: false, reason: 'landmarks are degenerate (overlapping points)' };
+
+  let clinicalDeg;
+  switch (movement.conversion) {
+    case 'invert': clinicalDeg = 180 - rawDeg; break;
+    case 'deviation90': clinicalDeg = Math.abs(rawDeg - 90); break;
+    case 'tiltDeviation90': clinicalDeg = 90 - Math.abs(rawDeg); break;
+    case 'direct':
+    default: clinicalDeg = rawDeg;
+  }
+  clinicalDeg = Math.max(0, round2(clinicalDeg));
+
+  return {
+    valid: true,
+    rawDeg: round2(rawDeg),
+    clinicalDeg,
+    points: pts.map((p) => ({ x: p.x, y: p.y })),
+    vertexIndex: movement.formula === 'tilt' ? null : 1,
+  };
+}
+
+/** Simple frame-quality check for a movement capture: are its required landmarks visible/framed. */
+export function assessMovementFrameQuality(landmarks, movement, side) {
+  const idxs = movement.points.map((name) => sidePoint(side, name));
+  const missing = idxs.filter((i) => !visible(landmarks, i, 0.35));
+  if (missing.length > 0) {
+    return { ok: false, message: 'Not all needed joints are visible — reposition so they’re all in frame.' };
+  }
+  const xs = idxs.map((i) => landmarks[i].x);
+  const ys = idxs.map((i) => landmarks[i].y);
+  if (Math.min(...xs) < 0.03 || Math.max(...xs) > 0.97 || Math.min(...ys) < 0.03 || Math.max(...ys) > 0.97) {
+    return { ok: false, message: 'Move so the tested joint stays clear of the frame edges.' };
+  }
   return { ok: true, message: 'Good position — hold still and capture.' };
 }

@@ -103,6 +103,77 @@ export function drawOverlay(ctx, videoEl, landmarks, canvasW, canvasH) {
   ctx.restore();
 }
 
+/**
+ * Draw the specific line(s)/angle used for one movement measurement onto a
+ * canvas — used both for the live camera overlay (so the user can see what's
+ * being measured before capturing) and burned into the frozen captured photo
+ * so the result image shows exactly what was measured.
+ *
+ * `points` and `vertexIndex` should come straight from measureMovement()'s
+ * result: for a 3-point "vertex" movement, points = [a, vertex, b] and
+ * vertexIndex = 1; for a 2-point "tilt" movement, points = [a, b] and
+ * vertexIndex is undefined.
+ */
+export function drawMovementAnnotation(ctx, points, vertexIndex, clinicalDeg, canvasW, canvasH) {
+  if (!points || points.length < 2) return;
+  ctx.save();
+  const px = points.map((p) => ({ x: p.x * canvasW, y: p.y * canvasH }));
+
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#22d3ee';
+  ctx.lineCap = 'round';
+
+  let labelX;
+  let labelY;
+
+  if (px.length === 3 && vertexIndex !== undefined) {
+    const [a, v, b] = px;
+    ctx.beginPath();
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(a.x, a.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    for (const p of [a, v, b]) {
+      ctx.beginPath();
+      ctx.fillStyle = '#f97316';
+      ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    labelX = v.x;
+    labelY = v.y;
+  } else {
+    const [a, b] = px;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    for (const p of [a, b]) {
+      ctx.beginPath();
+      ctx.fillStyle = '#f97316';
+      ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    labelX = (a.x + b.x) / 2;
+    labelY = (a.y + b.y) / 2;
+  }
+
+  const text = `${Math.round(clinicalDeg)}°`;
+  ctx.font = 'bold 26px -apple-system, sans-serif';
+  const textW = ctx.measureText(text).width;
+  const boxY = Math.max(labelY - 46, 6);
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(labelX - textW / 2 - 10, boxY, textW + 20, 36);
+  ctx.fillStyle = '#facc15';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, labelX, boxY + 18);
+
+  ctx.restore();
+}
+
 // Minimal skeleton edge list (subset of MediaPipe's official POSE_CONNECTIONS,
 // upper + lower body only — enough for posture/movement overlay).
 const POSE_CONNECTIONS = [
