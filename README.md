@@ -25,12 +25,14 @@ instructions and live on-screen feedback ("move back", "center yourself",
   on this device (running local history), ready to open in Excel or Google
   Sheets
 
-**Movement Test (AROM)** — record a movement (elbow / shoulder / hip / knee
-flexion), then get:
-- Active range of motion (min/max/range angle) per side
-- Left vs right symmetry index (%)
-- Smoothness score (normalized jerk — lower is smoother)
-- Export as JSON (raw angle time-series + summaries)
+**Movement Test (AROM)** — choose a joint (shoulder, elbow, wrist, hip, knee,
+or ankle), a specific movement (e.g. shoulder flexion, wrist ulnar deviation,
+ankle dorsiflexion — 20 movements total), and a side. Each movement shows the
+exact start position and step-by-step instructions, plus a live angle readout
+on screen as you move. Take a single end-position photo; the measured angle
+and the lines used to calculate it are burned directly into the photo. Results
+are compared against standard goniometry reference ranges and shown as a
+gallery of annotated photos you can review or export as JSON.
 
 ## Running it
 
@@ -67,9 +69,11 @@ set up this way — see the live link shared in chat.
    "good position", tap **Capture**, then **Next**. Repeat for all 4 views.
    You'll land on a report you can email to yourself or save to a running
    CSV spreadsheet.
-4. **Movement test**: pick a joint, tap "Start Recording", perform the
-   movement slowly through its full range, tap "Stop Recording" to see
-   AROM + symmetry + smoothness. Export as JSON any time.
+4. **Movement test**: pick a joint, then a specific movement, then which side.
+   Read the start position and steps, tap "I'm ready", move into the end
+   position, watch the live angle on screen, then tap **Capture**. Confirm or
+   retake, then **Save** — you'll land on a results gallery with the angle
+   and lines burned into each photo. Export the whole set as JSON any time.
 
 ## Project structure
 
@@ -142,6 +146,37 @@ everything else is a directional screening signal, useful for tracking change
 over time in the same person more than for comparing against a fixed
 "normal."
 
+## Movement (AROM) metrics reference
+
+The `MOVEMENTS` catalog in `metrics.js` defines 20 movements — shoulder
+(flexion, abduction, external rotation), elbow (flexion, extension,
+pronation, supination), wrist (flexion, extension, radial/ulnar deviation),
+hip (flexion, extension, abduction), knee (flexion, extension), and ankle
+(dorsiflexion, plantarflexion, inversion, eversion). Each movement is tested
+one side at a time from a single end-position photo (not a continuous
+recording), and reports a "clinical" degree value where 0° = the neutral/
+start position and increasing values mean more motion — this required
+converting the raw geometric angle at the joint into that convention, which
+was verified with synthetic landmark tests for every movement before
+shipping (see `metrics.js` comments above `MOVEMENTS` for the conversion
+rules used).
+
+Normal AROM reference ranges shown alongside each result are AAOS-style
+averages from standard goniometry references — useful guides, not
+diagnostic cutoffs; real ranges vary by age, sex, and body type.
+
+Known accuracy limits:
+- **Rotation and pronation/supination** (shoulder external rotation, elbow
+  pronation/supination) involve motion partly toward/away from the camera,
+  which a single 2D photo can't track precisely — treat these as rough,
+  relative indicators only.
+- **Ankle inversion/eversion** is approximated from ankle/heel/knee position;
+  true subtalar inversion/eversion is normally measured with markers on the
+  heel bisection, which this app can't track.
+- **Single end-position photo**, not a recorded motion — so there's no true
+  active-range-of-motion curve, speed, or smoothness measure, only the angle
+  at the position you captured.
+
 ## Known limitations / good next steps
 
 - **Not a medical device.** This is an automated visual screening from 2D
@@ -164,8 +199,13 @@ over time in the same person more than for comparing against a fixed
   to the `full` or `heavy` model in `pose.js` (`MODEL_URL`) for higher
   accuracy if your phone can handle it.
 - **More movements**: neck rotation/lateral flexion, trunk rotation, squat
-  depth, gait analysis (stride, cadence) are natural next additions —
-  `JOINTS` in `metrics.js` is the place to add new joint definitions.
+  depth, and gait analysis (stride, cadence) are natural next additions —
+  `MOVEMENTS` in `metrics.js` is the place to add new movement definitions.
+- **Continuous AROM recording**: the previous version recorded a full motion
+  and computed range/smoothness/symmetry over time; the current version
+  trades that for simpler single end-position photos per the latest design.
+  Re-adding an optional "record through the motion" mode is a natural next
+  step if that's wanted back.
 
 This is meant to be extended — tell me what to build next and we'll keep
 going.
